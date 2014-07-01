@@ -1,0 +1,126 @@
+# -*- coding: cp936 -*-
+import urllib
+import json
+import arcpy
+from arcpy import env
+env.workspace = "E:\\research center\\xujiahui\\geofile\\"
+env.overwriteOutput = True
+
+ak="0RtdF2Ivogp7AvKd7EDRcUPT"#百度应用接口密钥
+
+query=["超市","餐厅","酒店","公寓","公园","酒吧","便利店",\
+       "电影院","银行","幼儿园","麦当劳","肯德基","地铁站","商场",\
+       "写字楼","邮政","兰州拉面","沙县小吃","菜市场","汽车站",\
+       "博物","医院","快捷酒店","咖啡厅"]
+query_english=['supermarket','staurant','hotel','apartment',\
+               'park','pub','CVS','cinema','bank','kindergarten',\
+               'MCdonald','KFC','metrostation','mall','officebuilding',\
+               'mail','lanzhounoodle','Shaxiansnack','vegetablemarket',\
+               'busstation','museum','hospital','motel','coffebar']
+
+##query=["超市"]
+##query_english=['supermarket']
+
+page_size=10
+page_num=0
+scope=1
+region="上海"
+region_english='shanghai'
+jsonfile=''
+points=[]
+count=0
+asd=[]
+
+class PointOI(object):
+    """定义POI对象，储存点信息"""
+    def __init__(self,pName,pLat,pLng,pAddress,pUid):
+        self.name=pName
+        self.lat=pLat
+        self.lng=pLng
+        self.address=pAddress
+##          self.street_id=street_id
+        self.uid=pUid
+    def description(self):
+        print self.name
+
+def storeObject(jf):
+    """处理json数据，创建点对象"""
+    name=[]
+    lat=[]
+    lng=[]
+    address=[]
+    street_id=[]
+    telephone=[]
+    uid=[]
+    points=[]
+    for i in range(len(jf['results'])):
+        name.append(jf['results'][i]['name'])
+        lat.append(jf['results'][i]['location']['lat'])
+        lng.append(jf['results'][i]['location']['lng'])
+        address.append(jf['results'][i]['address'])
+##        street_id.append(jf['results'][i]['street_id'])
+        uid.append(jf['results'][i]['uid'])
+    for j in range(len(jf['results'])):
+        tpoint=PointOI(name[j],lat[j],lng[j],address[j],uid[j])
+        points.append(tpoint)
+        asd.append(tpoint)
+    return points   #得到PointOI类的实例tpoint列表
+
+def createPointGeometry(pl,num):
+    '''创建pointGeometry对象'''
+    pointGeometryList=[]
+
+    #创建点几何对象
+    for point in pl:
+        pnt = arcpy.Point()
+        pnt.X=point.lng
+        pnt.Y=point.lat
+        pointGeometry=arcpy.PointGeometry(pnt)
+        pointGeometryList.append(pointGeometry)
+    filename=str(region_english)+"_"+str(query_english[num])
+    arcpy.CopyFeatures_management(pointGeometryList,str(filename))
+
+
+    #添加属性字段
+    arcpy.AddField_management(str(filename)+'.shp','name','TEXT')
+    arcpy.AddField_management(str(filename)+'.shp','address','TEXT')
+    arcpy.AddField_management(str(filename)+'.shp','uid','TEXT')
+    cur = arcpy.UpdateCursor(str(filename)+".shp")
+    count_i=0
+    for row in cur:
+        row.name=pl[count_i].name
+        row.address=pl[count_i].address
+##        row.street_id=pl[count_i].street_id
+        row.uid=pl[count_i].uid
+        count_i=count_i+1
+        cur.updateRow (row)
+    del cur,row
+
+#主循环
+count=0
+for q in query:
+    np=True
+    points=[]
+    while np:
+        url="http://api.map.baidu.com/place/v2/search?\
+        ak="+str(ak)+"&output=json&query="+str(q)+"&page_size="\
+        +str(page_size)+"&page_num="+str(page_num)+"&scope="+str(scope)\
+        +"&region="+str(region)
+
+        jsonw=urllib.urlopen(url)
+        jsonf=jsonw.read()
+        page_num=page_num+1
+        jsonfile=json.loads(jsonf)
+        pointArray=storeObject(jsonfile)#创建并返回point列表
+
+        #把point列表拆分为单个元素添加到更大的points中，以便得到关于一个query的所有点元素
+        for x in pointArray:
+            points.append(x)
+        pointArray=[]
+        if page_num>1000:
+            np=False
+    page_num=0
+    createPointGeometry(points,count)
+    count=count+1
+
+
